@@ -2,8 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { BookOpen, CheckCircle, ChevronUp, ChevronDown, MessageCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { celebrateLevelUp, celebrateXPGain, celebrateCoinCollection, celebrateQuestComplete } from './utils/animations';
-import { getCurrentUser, getCurrentSession, onAuthStateChange, signOut, handleOAuthCallback } from './lib/auth';
-import { getCompletedLessons, completeLesson, updateUserRewards, getWeeklyStats } from './lib/api';
 
 // Data Imports
 import { LEVELS, AVATARS, QUESTS, MOCK_LESSON, DAILY_MISSIONS, FEATURED_LESSONS, WEEKLY_STATS, LEADERBOARD_DATA, LEARNING_PATHS, CS_INTERESTS } from './data/mockData';
@@ -11,8 +9,6 @@ import { LEVELS, AVATARS, QUESTS, MOCK_LESSON, DAILY_MISSIONS, FEATURED_LESSONS,
 // Component Imports
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
-import LoginScreen from './components/LoginScreen';
-import ClassSelection from './components/ClassSelection';
 import QuestMap from './components/QuestMap';
 import Shop from './components/Shop';
 import LessonOverlay from './components/LessonOverlay';
@@ -24,7 +20,7 @@ import ChatBot from './components/ChatBot';
 
 export default function App() {
   // Navigation State
-  const [phase, setPhase] = useState('login'); // login, selection, app
+  const [phase, setPhase] = useState('app'); // Skip login, go directly to app
   const [view, setView] = useState('dashboard');
   const [activeLesson, setActiveLesson] = useState(null);
   const [selectedPath, setSelectedPath] = useState(null);
@@ -96,214 +92,9 @@ export default function App() {
   // Derived State
   const levelInfo = LEVELS[user.level] || LEVELS[3];
 
-  // Check for existing session on mount
+  // No auth - skip session checks completely
   useEffect(() => {
-    let isMounted = true;
-    
-    const loadUser = async () => {
-      if (!isMounted) return;
-
-      // First, try to detect an existing session (poll briefly because Supabase may restore session async)
-      const maxWait = 2000; // ms
-      const interval = 200; // ms
-      let waited = 0;
-      let sessionFound = false;
-
-      while (waited < maxWait) {
-        const sessionRes = await getCurrentSession();
-        if (sessionRes.success && sessionRes.session && sessionRes.session.user) {
-          sessionFound = true;
-          break;
-        }
-        // small delay
-        // eslint-disable-next-line no-await-in-loop
-        await new Promise(r => setTimeout(r, interval));
-        waited += interval;
-      }
-
-      if (sessionFound) {
-        // If session present, load profile and proceed
-        const profileRes = await getCurrentUser();
-        if (profileRes.success && profileRes.user) {
-          setUser({
-            id: profileRes.user.id,
-            name: profileRes.user.full_name,
-            role: profileRes.user.role,
-            email: profileRes.user.email,
-            xp: profileRes.user.xp,
-            level: profileRes.user.level,
-            diamonds: profileRes.user.diamonds || 0,
-            coins: profileRes.user.coins,
-            streak: profileRes.user.streak,
-            avatar: profileRes.user.avatar_url || AVATARS[0].src,
-            inventory: ['alex'],
-            interests: [],
-            stats: { completed: 0, lessons: { current: 0, total: 0 }, hours: { current: 0, total: 0 } }
-          });
-          setRole(profileRes.user.role);
-          const progressResult = await getCompletedLessons(profileRes.user.id);
-          if (progressResult.success) {
-            const completedIds = new Set(progressResult.lessons.map(l => l.lesson_id));
-            setCompletedLessons(completedIds);
-          }
-          
-          // Load weekly stats
-          const statsResult = await getWeeklyStats(profileRes.user.id);
-          if (statsResult.success) {
-            setWeeklyStats(statsResult.stats);
-          }
-          
-          setPhase('app');
-          return;
-        }
-      }
-
-      // Check if this is an OAuth callback
-      const urlParams = new URLSearchParams(window.location.search);
-      const isCallback = urlParams.has('code') || window.location.hash.includes('access_token');
-
-      if (isCallback) {
-        try {
-          const callbackResult = await handleOAuthCallback();
-          
-          if (callbackResult.success && callbackResult.user) {
-            if (!isMounted) return;
-            
-            // Set user from OAuth
-            setUser({
-              id: callbackResult.user.id,
-              name: callbackResult.user.full_name,
-              role: callbackResult.user.role,
-              email: callbackResult.user.email,
-              xp: callbackResult.user.xp,
-              level: callbackResult.user.level,
-              diamonds: callbackResult.user.diamonds || 0,
-              coins: callbackResult.user.coins,
-              streak: callbackResult.user.streak,
-              avatar: callbackResult.user.avatar_url || AVATARS[0].src,
-              inventory: ['alex'],
-              interests: [],
-              stats: { completed: 0, lessons: { current: 0, total: 0 }, hours: { current: 0, total: 0 } }
-            });
-            setRole(callbackResult.user.role);
-            setPhase('app');
-            
-            // Clean up URL
-            window.history.replaceState({}, document.title, window.location.pathname);
-            return;
-          } else {
-            // Clean up URL even on failure
-            window.history.replaceState({}, document.title, window.location.pathname);
-            return;
-          }
-        } catch (error) {
-          window.history.replaceState({}, document.title, window.location.pathname);
-          return;
-        }
-      }
-      
-      // Regular session check
-      const result = await getCurrentUser();
-      
-      if (result.success && result.user) {
-        // User is already logged in
-        setUser({
-          id: result.user.id, // Store Supabase user ID
-          name: result.user.full_name,
-          role: result.user.role,
-          email: result.user.email,
-          xp: result.user.xp,
-          level: result.user.level,
-          diamonds: result.user.diamonds || 0,
-          coins: result.user.coins,
-          streak: result.user.streak,
-          avatar: result.user.avatar_url || AVATARS[0].src,
-          inventory: ['alex'], // Load from user_inventory table
-          interests: [],
-          stats: { completed: 0, lessons: { current: 0, total: 0 }, hours: { current: 0, total: 0 } }
-        });
-        setRole(result.user.role);
-        
-        // Load completed lessons and stats
-        const progressResult = await getCompletedLessons(result.user.id);
-        if (progressResult.success) {
-          const completedIds = new Set(progressResult.lessons.map(l => l.lesson_id));
-          setCompletedLessons(completedIds);
-        }
-        
-        // Load weekly stats
-        const statsResult = await getWeeklyStats(result.user.id);
-        if (statsResult.success) {
-          setWeeklyStats(statsResult.stats);
-        }
-        
-        // Skip to app if user role, otherwise go to selection
-        if (result.user.role === 'user') {
-          setPhase('app'); // Skip class selection if already set up
-        } else {
-          setPhase('app');
-        }
-      }
-    };
-
-    loadUser();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  // Listen for auth changes separately
-  useEffect(() => {
-    const subscription = onAuthStateChange(async (event, session, userData) => {
-      if (event === 'SIGNED_IN' && session?.user) {
-        // Prefer profile returned by auth listener (userData), otherwise fetch
-        const profile = userData || (await getCurrentUser()).user;
-        if (profile) {
-          setUser({
-            id: profile.id,
-            name: profile.full_name,
-            role: profile.role,
-            email: profile.email,
-            xp: profile.xp,
-            level: profile.level,
-            diamonds: profile.diamonds || 0,
-            coins: profile.coins,
-            streak: profile.streak,
-            avatar: profile.avatar_url || AVATARS[0].src,
-            inventory: ['alex'],
-            interests: [],
-            stats: { completed: 0, lessons: { current: 0, total: 0 }, hours: { current: 0, total: 0 } }
-          });
-          setRole(profile.role);
-
-          // Load completed lessons
-          const progressResult = await getCompletedLessons(profile.id);
-          if (progressResult.success) {
-            const completedIds = new Set(progressResult.lessons.map(l => l.lesson_id));
-            setCompletedLessons(completedIds);
-          }
-          
-          // Load weekly stats
-          const statsResult = await getWeeklyStats(profile.id);
-          if (statsResult.success) {
-            setWeeklyStats(statsResult.stats);
-          }
-
-          setPhase('app');
-        }
-      } else if (event === 'SIGNED_OUT') {
-        setPhase('login');
-        setUser(null);
-        setRole('user');
-      }
-    });
-
-    return () => {
-      if (subscription?.unsubscribe) {
-        subscription.unsubscribe();
-      }
-    };
+    // App starts directly in dashboard - no authentication needed
   }, []);
 
   // Handlers
@@ -542,9 +333,7 @@ export default function App() {
   };
 
   // --- RENDERING ---
-
-  if (phase === 'login') return <LoginScreen onLogin={handleLogin} />;
-  if (phase === 'selection') return <ClassSelection onSelect={handleClassSelect} />;
+  // Skip login and class selection - go directly to dashboard
 
   return (
     <div className="flex min-h-screen bg-slate-950 font-sans text-slate-100">
